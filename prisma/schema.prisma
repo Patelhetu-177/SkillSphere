@@ -1,0 +1,41 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex", "fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model InterviewMate {
+  id          String    @id @default(uuid())
+  userId      String
+  userName    String?
+  src         String
+  name        String
+  description String
+  instruction String
+  seed        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+}
+
+model Message {
+  id              String         @id @default(uuid())
+  role            Role
+  content         String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  userId          String
+  interviewMateId String?
+  interviewMate   InterviewMate? @relation(fields: [interviewMateId], references: [id], onDelete: Cascade)
+
+  @@index([interviewMateId])
+}
+
+enum Role {
+  user
+  system
+}
