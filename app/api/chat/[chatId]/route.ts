@@ -1,7 +1,7 @@
 // api/chat/[chatId]/route.ts
 export const dynamic = "force-dynamic";
 
-import { LangChainStream } from "ai";
+import { BytesOutputParser } from "@langchain/core/output_parsers";
 import { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { MemoryManager } from "@/lib/memory";
@@ -107,46 +107,56 @@ export async function POST(
       ? similarDocs.map((doc) => doc.pageContent).join("\n")
       : "";
 
-    const { stream, writer } = LangChainStream();
+    const parser = new BytesOutputParser();
+    let finalAIResponseContent = "";
 
-    const model = new ChatGoogleGenerativeAI({
-      model: "models/gemini-1.5-flash",
-      apiKey: GEMINI_API_KEY,
-      maxOutputTokens: 2048,
-      temperature: 0.7,
-      streaming: true,
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-      ],
-      callbacks: CallbackManager.fromHandlers({
-        handleLLMNewToken: (token) => writer.write(token),
-        handleLLMEnd: () => writer.close(),
-        handleLLMError: (e: Error) => {
-          console.error("LLM Error:", e);
-          writer.close();
-        },
-      }),
-    });
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
 
-    const currentLanguageLabel =
-      languages[selectedLanguageCode]?.label || "English";
+        const model = new ChatGoogleGenerativeAI({
+          model: "models/gemini-1.5-flash",
+          apiKey: GEMINI_API_KEY,
+          maxOutputTokens: 2048,
+          temperature: 0.7,
+          streaming: true,
+          safetySettings: [
+            {
+              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+          ],
+          callbacks: CallbackManager.fromHandlers({
+            handleLLMNewToken: (token) => {
+              controller.enqueue(encoder.encode(token));
+            },
+            handleLLMEnd: () => {
+              controller.close();
+            },
+            handleLLMError: (e: Error) => {
+              console.error("LLM Error:", e);
+              controller.error(e);
+            },
+          }),
+        });
 
-    const systemInstruction = `
+        const currentLanguageLabel =
+          languages[selectedLanguageCode]?.label || "English";
+
+        const systemInstruction = `
 You are ${name}.
 ${instruction}
 
@@ -156,15 +166,19 @@ Here is relevant context from past conversations or knowledge base:
 ${relevantHistory || "No additional context available."}
 `;
 
-    const result = await model.invoke([
-      new HumanMessage(systemInstruction),
-      ...chatMessages,
-    ]);
+        const chain = model.pipe(parser);
 
-    const finalAIResponseContent =
-      typeof result.content === "string"
-        ? result.content.trim()
-        : JSON.stringify(result.content);
+        const result = await chain.stream([
+          new HumanMessage(systemInstruction),
+          ...chatMessages,
+        ]);
+
+        for await (const chunk of result) {
+          controller.enqueue(chunk);
+          finalAIResponseContent += decoder.decode(chunk);
+        }
+      },
+    });
 
     await memoryManager.writeToHistory(
       `AI: ${finalAIResponseContent}\n`,

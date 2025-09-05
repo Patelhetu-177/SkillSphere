@@ -25,7 +25,7 @@ export const Navbar = () => {
               font.className
             )}
           >
-            Education<span className="text-green-600">AI</span>
+            Skill<span className="text-green-600">Sphere</span>
           </h1>
         </Link>
       </div>
