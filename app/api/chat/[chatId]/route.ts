@@ -66,6 +66,7 @@ export async function POST(
       await memoryManager.seedChatHistory(seed, "\n\n", memoryKey);
     }
 
+    // Save user message
     await prismadb.message.create({
       data: {
         content: prompt,
@@ -104,10 +105,12 @@ export async function POST(
     const parser = new BytesOutputParser();
     let finalAIResponseContent = "";
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
 
+    (async () => {
+      try {
         const model = new ChatGoogleGenerativeAI({
           model: "models/gemini-1.5-flash",
           apiKey: GEMINI_API_KEY,
@@ -121,37 +124,35 @@ export async function POST(
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
           ],
           callbacks: CallbackManager.fromHandlers({
-            handleLLMNewToken: (token) => {
-              controller.enqueue(encoder.encode(token));
+            handleLLMNewToken: async (token) => {
               finalAIResponseContent += token;
+              await writer.write(encoder.encode(token));
             },
-            handleLLMEnd: () => {
-              controller.close();
+            handleLLMEnd: async () => {
+              await writer.close();
 
-              // 🔥 Important: save to DB in background so it's not cut off
-              queueMicrotask(async () => {
-                try {
-                  await memoryManager.writeToHistory(
-                    `AI: ${finalAIResponseContent}\n`,
-                    memoryKey
-                  );
+              // ✅ Save AI response after stream finishes
+              try {
+                await memoryManager.writeToHistory(
+                  `AI: ${finalAIResponseContent}\n`,
+                  memoryKey
+                );
 
-                  await prismadb.message.create({
-                    data: {
-                      content: finalAIResponseContent,
-                      role: "system",
-                      userId,
-                      interviewMateId: interviewMate.id,
-                    },
-                  });
-                } catch (err) {
-                  console.error("Failed to save AI message:", err);
-                }
-              });
+                await prismadb.message.create({
+                  data: {
+                    content: finalAIResponseContent,
+                    role: "system",
+                    userId,
+                    interviewMateId: interviewMate.id,
+                  },
+                });
+              } catch (err) {
+                console.error("Failed to save AI message:", err);
+              }
             },
-            handleLLMError: (e: Error) => {
+            handleLLMError: async (e: Error) => {
               console.error("LLM Error:", e);
-              controller.error(e);
+              await writer.abort(e);
             },
           }),
         });
@@ -180,12 +181,15 @@ Remember to keep responses natural, engaging, and aligned with your persona.
         ]);
 
         for await (const chunk of result) {
-          controller.enqueue(chunk);
+          await writer.write(chunk);
         }
-      },
-    });
+      } catch (err) {
+        console.error("Stream error:", err);
+        await writer.abort(err);
+      }
+    })();
 
-    return new Response(stream, {
+    return new Response(readable, {
       status: 200,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
