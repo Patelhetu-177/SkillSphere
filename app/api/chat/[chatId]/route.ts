@@ -21,7 +21,6 @@ export async function POST(
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is undefined.");
       return new NextResponse("Missing API Key", { status: 500 });
     }
 
@@ -33,7 +32,6 @@ export async function POST(
     const prompt = body.prompt.trim();
     const selectedLanguageCode = (body.lang as string) || "en";
 
-    // Use Clerk's 'auth' helper for authentication
     const user = await currentUser().catch(() => null);
     if (!user?.id || !user?.firstName) {
       return new NextResponse("Unauthorized", { status: 401 });
@@ -58,7 +56,7 @@ export async function POST(
 
     const memoryKey = {
       companionName: interviewMate.id,
-      userId: userId,
+      userId,
       modelName: "gemini-1.5-flash",
     };
 
@@ -69,21 +67,18 @@ export async function POST(
       await memoryManager.seedChatHistory(seed, "\n\n", memoryKey);
     }
 
-    const userMessageData: Prisma.MessageUncheckedCreateInput = {
-      content: prompt,
-      role: "user",
-      userId: userId,
-      interviewMateId: interviewMate.id,
-    };
-
+    // Save user message first
     await prismadb.message.create({
-      data: userMessageData,
+      data: {
+        content: prompt,
+        role: "user",
+        userId,
+        interviewMateId: interviewMate.id,
+      },
     });
 
     await memoryManager.writeToHistory(`User: ${prompt}\n`, memoryKey);
-    const recentChatHistory = await memoryManager.readLatestHistory(
-      memoryKey
-    );
+    const recentChatHistory = await memoryManager.readLatestHistory(memoryKey);
 
     const chatMessages: BaseMessage[] = recentChatHistory
       .split("\n")
@@ -114,7 +109,6 @@ export async function POST(
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const decoder = new TextDecoder();
 
         const model = new ChatGoogleGenerativeAI({
           model: "models/gemini-1.5-flash",
@@ -123,29 +117,39 @@ export async function POST(
           temperature: 0.7,
           streaming: true,
           safetySettings: [
-            {
-              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
-            {
-              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-              threshold: HarmBlockThreshold.BLOCK_NONE,
-            },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
           ],
           callbacks: CallbackManager.fromHandlers({
             handleLLMNewToken: (token) => {
               controller.enqueue(encoder.encode(token));
+              finalAIResponseContent += token;
             },
             handleLLMEnd: () => {
               controller.close();
+
+              // 🔥 Important: save to DB in background so it's not cut off
+              queueMicrotask(async () => {
+                try {
+                  await memoryManager.writeToHistory(
+                    `AI: ${finalAIResponseContent}\n`,
+                    memoryKey
+                  );
+
+                  await prismadb.message.create({
+                    data: {
+                      content: finalAIResponseContent,
+                      role: "system",
+                      userId,
+                      interviewMateId: interviewMate.id,
+                    },
+                  });
+                } catch (err) {
+                  console.error("Failed to save AI message:", err);
+                }
+              });
             },
             handleLLMError: (e: Error) => {
               console.error("LLM Error:", e);
@@ -179,33 +183,13 @@ Remember to keep responses natural, engaging, and aligned with your persona.
 
         for await (const chunk of result) {
           controller.enqueue(chunk);
-          finalAIResponseContent += decoder.decode(chunk);
         }
-
-        await memoryManager.writeToHistory(
-          `AI: ${finalAIResponseContent}\n`,
-          memoryKey
-        );
-
-        const aiMessageData: Prisma.MessageUncheckedCreateInput = {
-          content: finalAIResponseContent,
-          role: "system",
-          userId: userId,
-          interviewMateId: interviewMate.id,
-        };
-
-        await prismadb.message.create({
-          data: aiMessageData,
-        });
-
       },
     });
 
     return new Response(stream, {
       status: 200,
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-      },
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   } catch (error: unknown) {
     console.error("[CHAT_POST ERROR]", error);
@@ -217,38 +201,26 @@ Remember to keep responses natural, engaging, and aligned with your persona.
       if ("status" in error && typeof (error as { status: number }).status === "number") {
         statusCode = (error as { status: number }).status;
         if (statusCode === 503) {
-          errorMessage =
-            "I'm a bit overwhelmed right now. Please try asking again in a minute.";
+          errorMessage = "I'm a bit overwhelmed right now. Please try asking again in a minute.";
         } else if (statusCode === 429) {
-          errorMessage =
-            "Too many requests! Please slow down and try again shortly.";
+          errorMessage = "Too many requests! Please slow down and try again shortly.";
         } else if (statusCode >= 400 && statusCode < 500) {
-          errorMessage =
-            "There was a problem with your request. Please check your input and try again.";
+          errorMessage = "There was a problem with your request. Please check your input and try again.";
         } else {
-          errorMessage =
-            "I'm having trouble connecting to my brain. Please try again soon!";
+          errorMessage = "I'm having trouble connecting to my brain. Please try again soon!";
         }
       } else if (error.message) {
-        if (
-          error.message.includes(
-            "Error fetching from https://generativelanguage.googleapis.com"
-          )
-        ) {
-          errorMessage =
-            "I'm having trouble connecting to my brain. Please try again soon!";
+        if (error.message.includes("Error fetching from https://generativelanguage.googleapis.com")) {
+          errorMessage = "I'm having trouble connecting to my brain. Please try again soon!";
         } else if (error.message.includes("Rate limit exceeded")) {
-          errorMessage =
-            "You're sending too many messages. Please wait a moment before trying again.";
+          errorMessage = "You're sending too many messages. Please wait a moment before trying again.";
         }
       }
     }
 
     return new NextResponse(JSON.stringify({ error: errorMessage }), {
       status: statusCode,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
     });
   }
 }
