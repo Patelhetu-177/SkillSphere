@@ -11,7 +11,6 @@ import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 import { HumanMessage, AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
 import { CallbackManager } from "@langchain/core/callbacks/manager";
 import languages from "@/app/common/languages";
-import { Prisma } from "@prisma/client";
 import { BytesOutputParser } from "@langchain/core/output_parsers";
 
 export async function POST(
@@ -67,7 +66,6 @@ export async function POST(
       await memoryManager.seedChatHistory(seed, "\n\n", memoryKey);
     }
 
-    // Save user message first
     await prismadb.message.create({
       data: {
         content: prompt,
