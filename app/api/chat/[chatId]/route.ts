@@ -6,12 +6,12 @@ import { NextResponse } from "next/server";
 import { MemoryManager } from "@/lib/memory";
 import { rateLimit } from "@/lib/rate-limit";
 import prismadb from "@/lib/prismadb";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
-import { HumanMessage, AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
 import { CallbackManager } from "@langchain/core/callbacks/manager";
 import languages from "@/app/common/languages";
 import { BytesOutputParser } from "@langchain/core/output_parsers";
+import { getModel, getCachedChatHistory, cachedMessages } from "@/lib/chatUtils";
 
 export async function POST(
   request: Request,
@@ -60,13 +60,12 @@ export async function POST(
     };
 
     const memoryManager = await MemoryManager.getInstance();
-
+    
     const records = await memoryManager.readLatestHistory(memoryKey);
     if (records.length === 0) {
       await memoryManager.seedChatHistory(seed, "\n\n", memoryKey);
     }
 
-    // Save user message
     await prismadb.message.create({
       data: {
         content: prompt,
@@ -76,27 +75,28 @@ export async function POST(
       },
     });
 
-    await memoryManager.writeToHistory(`User: ${prompt}\n`, memoryKey);
     const recentChatHistory = await memoryManager.readLatestHistory(memoryKey);
-
-    const chatMessages: BaseMessage[] = recentChatHistory
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map((line) => {
-        if (line.startsWith("User: ")) {
-          return new HumanMessage(line.replace("User: ", "").trim());
-        } else if (line.startsWith("AI: ")) {
-          const aiContent = line.replace("AI: ", "").trim();
-          return aiContent ? new AIMessage(aiContent) : null;
-        }
-        return null;
-      })
-      .filter(Boolean) as BaseMessage[];
-
-    const similarDocs = await memoryManager.vectorSearch(
-      recentChatHistory,
-      interviewMate.id + ".txt"
-    );
+    if (!recentChatHistory.includes(`User: ${prompt}\n`)) {
+      await memoryManager.writeToHistory(`User: ${prompt}\n`, memoryKey);
+    }
+    
+    const chatMessages = await getCachedChatHistory(memoryKey, memoryManager);
+    
+    let similarDocs: Array<{ pageContent: string }> = [];
+    const shouldSearch = recentChatHistory.length > 200 && 
+                        Math.random() < 0.3;
+    
+    if (shouldSearch) {
+      try {
+        const searchResults = await memoryManager.vectorSearch(
+          recentChatHistory,
+          interviewMate.id + ".txt"
+        );
+        similarDocs = searchResults || [];
+      } catch (error) {
+        console.error("Vector search failed:", error);
+      }
+    }
 
     const relevantHistory = similarDocs?.length
       ? similarDocs.map((doc) => doc.pageContent).join("\n")
@@ -111,51 +111,44 @@ export async function POST(
 
     (async () => {
       try {
-        const model = new ChatGoogleGenerativeAI({
-          model: "models/gemini-1.5-flash",
-          apiKey: GEMINI_API_KEY,
-          maxOutputTokens: 2048,
-          temperature: 0.7,
-          streaming: true,
-          safetySettings: [
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          ],
-          callbacks: CallbackManager.fromHandlers({
-            handleLLMNewToken: async (token) => {
-              finalAIResponseContent += token;
-              await writer.write(encoder.encode(token));
-            },
-            handleLLMEnd: async () => {
-              await writer.close();
+        const model = getModel(GEMINI_API_KEY);
+        
+        const callbacks = CallbackManager.fromHandlers({
+          handleLLMNewToken: async (token: string) => {
+            finalAIResponseContent += token;
+            await writer.write(encoder.encode(token));
+          },
+          handleLLMEnd: async () => {
+            await writer.close();
 
-              // ✅ Save AI response after stream finishes
-              try {
-                await memoryManager.writeToHistory(
-                  `AI: ${finalAIResponseContent}\n`,
-                  memoryKey
-                );
-
-                await prismadb.message.create({
-                  data: {
-                    content: finalAIResponseContent,
-                    role: "system",
-                    userId,
-                    interviewMateId: interviewMate.id,
-                  },
-                });
-              } catch (err) {
-                console.error("Failed to save AI message:", err);
-              }
-            },
-            handleLLMError: async (e: Error) => {
-              console.error("LLM Error:", e);
-              await writer.abort(e);
-            },
-          }),
+            try {
+              await memoryManager.writeToHistory(
+                `AI: ${finalAIResponseContent}\n`,
+                memoryKey
+              );
+              await prismadb.message.create({
+                data: {
+                  content: finalAIResponseContent,
+                  role: "system",
+                  userId,
+                  interviewMateId: interviewMate.id,
+                },
+              });
+              
+              const cacheKey = `${memoryKey.companionName}-${memoryKey.userId}`;
+              delete cachedMessages[cacheKey];
+              
+            } catch (err) {
+              console.error("Failed to save AI message:", err);
+            }
+          },
+          handleLLMError: async (e: Error) => {
+            console.error("LLM Error:", e);
+            await writer.abort(e);
+          },
         });
+        
+        model.callbacks = callbacks;
 
         const currentLanguageLabel =
           languages[selectedLanguageCode]?.label || "English";

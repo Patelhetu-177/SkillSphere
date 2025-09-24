@@ -4,23 +4,20 @@ import { Redis } from '@upstash/redis';
 export async function rateLimit(identifier: string) {
     const rateLimit = new Ratelimit({
         redis: Redis.fromEnv(),
-        limiter: Ratelimit.slidingWindow(10, "3s"),
-        analytics: true,
+        limiter: Ratelimit.slidingWindow(30, "10s"),
+        analytics: false,
         prefix: "@upstash/ratelimit"
     });
 
     try {
         const result = await rateLimit.limit(identifier);
         return {
-            success: true,
+            success: result.success,
             remaining: result.remaining, 
             reset: result.reset, 
         };
     } catch (error) {
         console.error('Rate limit error:', error);
-        return {
-            success: false,
-            message: 'An error occurred while checking rate limit',
-        };
+        return { success: true };
     }
 }
