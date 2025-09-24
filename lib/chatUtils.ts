@@ -1,13 +1,16 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
+import { MemoryManager } from "./memory";
+import type { CompanionKey } from "./types";
+
 
 const MODEL_NAME = "models/gemini-1.5-flash";
 const MAX_TOKENS = 2048;
 const TEMPERATURE = 0.7;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-export let cachedMessages: { [key: string]: { timestamp: number; messages: BaseMessage[] } } = {};
+export const cachedMessages: { [key: string]: { timestamp: number; messages: BaseMessage[] } } = {};
 
 export const getModel = (apiKey: string) => {
   return new ChatGoogleGenerativeAI({
@@ -25,7 +28,7 @@ export const getModel = (apiKey: string) => {
   });
 };
 
-export const getCachedChatHistory = async (memoryKey: any, memoryManager: any) => {
+export const getCachedChatHistory = async (memoryKey: CompanionKey, memoryManager: MemoryManager) => {
   const cacheKey = `${memoryKey.companionName}-${memoryKey.userId}`;
   const now = Date.now();
   

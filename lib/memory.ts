@@ -1,19 +1,13 @@
 import { Redis } from "@upstash/redis";
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai"; // Changed import
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { PineconeStore } from "@langchain/pinecone";
-
-export type CompanionKey = {
-  companionName: string;
-  modelName: string;
-  userId: string;
-};
+import type { CompanionKey } from "./types";
 
 export class MemoryManager {
   private static instance: MemoryManager;
   private history: Redis;
   private vectorDBClient: Pinecone;
-
   public constructor() {
     this.history = Redis.fromEnv();
     this.vectorDBClient = new Pinecone();

@@ -160,9 +160,8 @@ const Content: React.FC<ContentProps> = ({
 
   const dropdownElementRef = useRef<HTMLDivElement>(null);
 
-  const isRtl =
-    typeof document !== "undefined" &&
-    document.getElementsByTagName("html")[0].getAttribute("dir");
+  const isRtl = typeof document !== "undefined" && 
+    document.documentElement.getAttribute('dir') === 'rtl';
 
   const getDropdownStyle = useCallback(() => {
     if (!dropdownElementRef.current || !open) return;
@@ -173,9 +172,9 @@ const Content: React.FC<ContentProps> = ({
 
     switch (placementState) {
       case "right-end":
-        isRtl === "rtl"
-          ? (dropdownElement.style.inset = "0px auto auto 0px")
-          : (dropdownElement.style.inset = "0px 0px auto auto");
+        dropdownElement.style.inset = isRtl 
+          ? "0px auto auto 0px" 
+          : "0px 0px auto auto";
         dropdownElement.style.transform = "translate(0px, 54px)";
         break;
       case "start-end":

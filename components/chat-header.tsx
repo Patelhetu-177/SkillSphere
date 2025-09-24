@@ -50,8 +50,9 @@ export const ChatHeader = ({ companion }: ChatHeaderProps) => {
       router.refresh();
       router.push("/");
     } catch (error) {
+      console.error('Error deleting interview:', error);
       toast({
-        description: "Something went wrong",
+        description: "Failed to delete interview. Please try again.",
         variant: "destructive",
       });
     }
