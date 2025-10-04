@@ -17,16 +17,12 @@ export class MemoryManager {
     if (!process.env.PINECONE_API_KEY) {
       throw new Error("PINECONE_API_KEY is not set");
     }
-    // if (!process.env.PINECONE_ENVIRONMENT) { // Pinecone often needs an environment variable
-    //   throw new Error("PINECONE_ENVIRONMENT is not set");
-    // }
     if (!process.env.PINECONE_INDEX) {
-        throw new Error("PINECONE_INDEX is not set");
+      throw new Error("PINECONE_INDEX is not set");
     }
 
     this.vectorDBClient = new Pinecone({
       apiKey: process.env.PINECONE_API_KEY,
-      // environment: process.env.PINECONE_ENVIRONMENT, // Add environment if needed by your Pinecone setup
     });
   }
 
@@ -34,20 +30,19 @@ export class MemoryManager {
     recentChatHistory: string,
     companionFileName: string
   ) {
-    const pineconeClient = this.vectorDBClient; // Type assertion not strictly necessary if `this.vectorDBClient` is already `Pinecone`
+    const pineconeClient = this.vectorDBClient;
 
     const pineconeIndex = pineconeClient.Index(
       process.env.PINECONE_INDEX!
     );
 
-    // IMPORTANT: Use GoogleGenerativeAIEmbeddings here
     const embeddings = new GoogleGenerativeAIEmbeddings({
-        apiKey: process.env.GEMINI_API_KEY, // Ensure GEMINI_API_KEY is set in your .env
-        modelName: "embedding-001", // This is the recommended Gemini embedding model
+      apiKey: process.env.GEMINI_API_KEY,
+      modelName: "gemini-embedding-001",
     });
 
     const vectorStore = await PineconeStore.fromExistingIndex(
-      embeddings, // Pass the Gemini embeddings
+      embeddings,
       { pineconeIndex }
     );
 
@@ -61,7 +56,7 @@ export class MemoryManager {
         } else {
           console.log("WARNING: failed to get vector search results.", err);
         }
-        return null; // Ensure the error doesn't propagate further
+        return null;
       });
     return similarDocs;
   }
@@ -104,7 +99,7 @@ export class MemoryManager {
       byScore: true,
     });
 
-    result = result.slice(-30).reverse(); // Keep only the last 30 messages
+    result = result.slice(-30).reverse();
     const recentChats = result.reverse().join("\n");
     return recentChats;
   }

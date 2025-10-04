@@ -88,6 +88,13 @@ export const ChatClient = ({ initialData, aiType }: ChatClientProps) => {
     });
 
     try {
+      if (!navigator.onLine) {
+        throw new Error("You are offline. Please check your internet connection.");
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(`/api/chat/${initialData.id}`, {
         method: "POST",
         headers: {
@@ -97,14 +104,20 @@ export const ChatClient = ({ initialData, aiType }: ChatClientProps) => {
           prompt: userMessage.content,
           lang: currentLanguage,
         }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ error: "An unknown error occurred." }));
-        const errorMessage =
-          errorData.error || `HTTP error! status: ${response.status}`;
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If we can't parse the error JSON, use the status text
+          errorMessage = response.statusText || errorMessage;
+        }
         throw new Error(errorMessage);
       }
 
@@ -131,12 +144,20 @@ export const ChatClient = ({ initialData, aiType }: ChatClientProps) => {
         });
       }
     } catch (error: unknown) {
-      // Changed to unknown
       console.error("Error sending message or processing stream:", error);
-      let errorMessage = "Unknown error.";
+      let errorMessage = "An unexpected error occurred. Please try again.";
+      
       if (error instanceof Error) {
-        errorMessage = error.message;
+        if (error.name === 'AbortError') {
+          errorMessage = "Request timed out. Please try again.";
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = "Unable to connect to the server. Please check your internet connection.";
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
       }
+      
+      console.error('Full error details:', error);
       toast({
         variant: "destructive",
         description: `Failed to get response: ${errorMessage}`,

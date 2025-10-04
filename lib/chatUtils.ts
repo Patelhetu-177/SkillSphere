@@ -4,8 +4,7 @@ import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import { MemoryManager } from "./memory";
 import type { CompanionKey } from "./types";
 
-
-const MODEL_NAME = "models/gemini-1.5-flash";
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
 const MAX_TOKENS = 2048;
 const TEMPERATURE = 0.7;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
