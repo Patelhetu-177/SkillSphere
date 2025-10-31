@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Contact2, Home, Brain, AudioLines } from "lucide-react";
+import { Contact2, Home, Brain, AudioLines, ShieldQuestionIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +26,12 @@ export const Sidebar = () => {
       icon: AudioLines,
       href: "/skillwise",
       lable: "Skillwise",
+      pro: false,
+    },
+    {
+      icon: ShieldQuestionIcon,
+      href: "/quiz",
+      lable: "Quiz",
       pro: false,
     },
     {
