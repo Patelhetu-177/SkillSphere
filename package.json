@@ -66,6 +66,7 @@
     "openai": "^4.68.1",
     "openai-edge": "^1.2.2",
     "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.296",
     "pptx2json": "^0.0.10",
     "query-string": "^9.1.1",
