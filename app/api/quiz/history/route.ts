@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prismadb';
 import { auth } from '@clerk/nextjs/server';
-
+      
 export async function GET() {
   const { userId } = auth();
   

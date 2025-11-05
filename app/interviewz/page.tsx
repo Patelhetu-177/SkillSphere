@@ -46,7 +46,7 @@ const InterviewzPage = async ({ searchParams }: InterviewzPageProps) => {
   });
 
   return (
-    <div className="h-full p-4 space-y-2">
+    <div className="h-full px-8 space-y-2 py-4">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">Interview Preparation Mates</h2>
         <Link href="/interviewz/new">

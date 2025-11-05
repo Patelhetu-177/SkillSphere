@@ -29,7 +29,7 @@ async function SkillWise() {
   const hasUpcomingInterviews = (allInterview ?? []).length > 0;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 px-4 md:px-16 py-8">
+    <div className="min-h-screen bg-white dark:bg-neutral-950 px-8 md:px-16 py-8">
       {/* Hero Section */}
       <section className="flex flex-row bg-gray-100 dark:bg-gradient-to-r dark:from-neutral-900 dark:to-neutral-950 h-full py-8 px-8 md:px-16 rounded-3xl items-center justify-between max-sm:flex-col">
         <div className="flex flex-col gap-6 max-w-lg text-left">
