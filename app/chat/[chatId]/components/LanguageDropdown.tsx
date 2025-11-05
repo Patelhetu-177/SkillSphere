@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import { Dropdown } from "./Dropdown";
 import Image from "next/image";
 
-import i18n from "@/lib/i18n";
-import languages from "@/app/common/languages";
+import i18n from "../../../../lib/i18n";
+import languages from "../../../../app/common/languages";
 
 const LanguageDropdown = () => {
   const [selectedLang, setSelectedLang] = useState("");

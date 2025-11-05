@@ -8,7 +8,7 @@ import { ChatForm } from "@/components/chat-form";
 import { ChatMessages } from "@/components/chat-messages";
 import { ChatMessageProps } from "@/components/chat-message";
 import LanguageDropdown from "./LanguageDropdown";
-import i18n from "@/lib/i18n";
+import i18n from "../../../../lib/i18n";
 import { useUser } from "@clerk/nextjs";
 import { useToast } from "@/hooks/use-toast";
 
